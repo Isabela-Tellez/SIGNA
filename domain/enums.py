@@ -11,7 +11,7 @@ from enum import Enum
 # Clasificación de incidencias
 # ---------------------------------------------------------------------------
 
-class category(str, Enum):
+class Category(str, Enum):
     """ Categoría principal de la incidencia. """
     TECHNICAL_VISIT = "technical_visit"
     MOBILE_NETWORK = "mobile_network"
@@ -31,11 +31,11 @@ class Urgency(str, Enum):
     HIGH = "high"
     CRITICAL = "critical"
 
-class Departament(str, Enum):
+class Department(str, Enum):
     """ Departamento responsable de gestionar la incidencia. """
     TECHNICAL_SUPPORT = "technical_support"
     CUSTOMER_SERVICE = "customer_service"
-    FIELDD_SERVICE = "field_service"
+    FIELD_SERVICE = "field_service"
     SECURITY = "security"
     BILLING = "billing"
     SALES = "sales"
