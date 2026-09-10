@@ -2,6 +2,7 @@ from application.signa_core import SignaCore
 from domain.enums import (
     Category,
     ClassificationField,
+    Decision,
     Department,
     ModelStatus,
     Provider,
@@ -12,6 +13,7 @@ from domain.schemas import (
     Incident,
     ModelMetrics,
     ModelResult,
+    TriageResult,
 )
 from infrastructure.mocks import (
     MockCloudProvider,
@@ -75,7 +77,10 @@ def test_signa_core_executes_local_and_cloud():
         cloud_provider=MockCloudProvider(),
     )
 
-    local_result, cloud_result = core.triage(incident)
+    result = core.triage(incident)
+
+    local_result = result.local_result
+    cloud_result = result.cloud_result
 
     assert local_result.provider == Provider.LOCAL
     assert local_result.status == ModelStatus.SUCCESS
@@ -100,7 +105,10 @@ def test_signa_core_detects_model_agreement():
         cloud_provider=MockCloudProvider(),
     )
 
-    local_result, cloud_result = core.triage(incident)
+    result = core.triage(incident)
+    
+    local_result = result.local_result
+    cloud_result = result.cloud_result
 
     comparison = core._compare_results(
         local_result,
@@ -131,7 +139,10 @@ def test_signa_core_detects_model_disagreement():
         cloud_provider=DisagreeingCloudProvider(),
     )
 
-    local_result, cloud_result = core.triage(incident)
+    result = core.triage(incident)
+    
+    local_result = result.local_result
+    cloud_result = result.cloud_result
 
     comparison = core._compare_results(
         local_result,
@@ -157,3 +168,31 @@ def test_signa_core_detects_model_disagreement():
         ClassificationField.CATEGORY,
         ClassificationField.DEPARTMENT,
     }
+
+def test_signa_core_returns_complete_triage_result():
+    """El Core debe devolver un TriageResult completo."""
+
+    incident = Incident(
+        text = "El cliente no tiene conexión a internet" 
+    )
+
+    core = SignaCore(
+        local_provider = MockLocalProvider(),
+        cloud_provider = MockCloudProvider(),
+    )
+
+    result = core.triage(incident)
+
+    assert isinstance(result, TriageResult)
+
+    assert result.incident == incident
+
+    assert result.local_result.provider == Provider.LOCAL
+    assert result.cloud_result.provider == Provider.CLOUD
+
+    assert result.comparison.comparable is True
+    assert result.comparison.models_agree is True
+
+    assert result.decision.decision == Decision.AUTOMATIC
+
+    assert result.human_review is None

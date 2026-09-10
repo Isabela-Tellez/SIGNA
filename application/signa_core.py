@@ -1,21 +1,37 @@
 """
 Abstracciones principales de SIGNA Core.
 
-El Core trabaja con proveedores de modelos sin depender de una 
+El Core trabaja con proveedores de modelos sin depender de una
 implementación concreta como Ollama o una API cloud.
 """
 
 from typing import Protocol
-from domain.enums import (ClassificationField, ModelStatus)
-from domain.schemas import(
-    Comparison, Disagreement, Incident, ModelResult,
+
+from application.decision_engine import DecisionEngine
+
+from domain.enums import (
+    ClassificationField,
+    Decision,
+    ModelStatus,
+    ReviewStatus,
 )
 
+from domain.schemas import (
+    Comparison,
+    Disagreement,
+    HumanReview,
+    Incident,
+    ModelResult,
+    TriageResult,
+)
+
+
 class ModelProvider(Protocol):
-    """Interfaz que debe cumplor cualquier proveedor de modelos."""
+    """Interfaz que debe cumplir cualquier proveedor de modelos."""
 
     def analyze(self, incident: Incident) -> ModelResult:
         """Analiza una incidencia y devuelve el resultado del modelo."""
+
 
 class SignaCore:
     """Motor principal de triaje de SIGNA."""
@@ -28,22 +44,56 @@ class SignaCore:
     ):
         self.local_provider = local_provider
         self.cloud_provider = cloud_provider
-        self.confidence_threshold = confidence_threshold
 
-    def triage(self, incident:Incident) -> tuple[ModelResult, ModelResult]:
-        """Ejecuta el triaje utilizando los modelos Local y Cloud."""
+        self.decision_engine = DecisionEngine(
+            confidence_threshold=confidence_threshold
+        )
+
+    def triage(self, incident: Incident) -> TriageResult:
+        """Ejecuta el flujo completo de triaje de SIGNA."""
+
+        # Ejecutar los dos proveedores
         local_result = self.local_provider.analyze(incident)
         cloud_result = self.cloud_provider.analyze(incident)
 
-        return local_result, cloud_result
+        # Comparar los resultados
+        comparison = self._compare_results(
+            local_result,
+            cloud_result,
+        )
+
+        # Tomar la decisión
+        decision = self.decision_engine.decide(
+            local_result,
+            cloud_result,
+            comparison,
+        )
+
+        # Crear revisión humana cuando sea necesaria
+        human_review = None
+
+        if decision.decision == Decision.HUMAN_REVIEW:
+            human_review = HumanReview(
+                status=ReviewStatus.PENDING,
+            )
+
+        # Devolver el resultado completo del pipeline
+        return TriageResult(
+            incident=incident,
+            local_result=local_result,
+            cloud_result=cloud_result,
+            comparison=comparison,
+            decision=decision,
+            human_review=human_review,
+        )
 
     def _compare_results(
         self,
         local_result: ModelResult,
         cloud_result: ModelResult,
     ) -> Comparison:
-        
         """Compara las clasificaciones de Local y Cloud."""
+
         local_classification = local_result.classification
         cloud_classification = cloud_result.classification
 
@@ -92,7 +142,7 @@ class SignaCore:
                 Disagreement(
                     field=ClassificationField.URGENCY,
                     local_value=local_classification.urgency.value,
-                    cloud_value=cloud_classification.urgency.value,
+                    cloud_value=local_classification.urgency.value,
                 )
             )
 
