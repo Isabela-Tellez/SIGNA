@@ -53,7 +53,7 @@ class MockLocalProvider:
     def analyze(self, incident: Incident) -> ModelResult:
         """Devuelve una clasificación simulada."""
 
-        Classification = _build_classification(
+        classification = _build_classification(
             incident,
             category = Category.CONNECTIVITY,
             urgency = Urgency.MEDIUM,
@@ -64,7 +64,7 @@ class MockLocalProvider:
         return ModelResult(
             provider=Provider.LOCAL,
             model="mock-local",
-            classification= Classification,
+            classification= classification,
             metrics=_build_metrics(),
             status=ModelStatus.SUCCESS,
             error=None,

@@ -28,7 +28,7 @@ class SignaCore:
     ):
         self.local_provider = local_provider
         self.cloud_provider = cloud_provider
-        self.confidence_provider = confidence_threshold
+        self.confidence_threshold = confidence_threshold
 
     def triage(self, incident:Incident) -> tuple[ModelResult, ModelResult]:
         """Ejecuta el triaje utilizando los modelos Local y Cloud."""
