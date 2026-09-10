@@ -41,8 +41,8 @@ Devuelve EXCLUSIVAMENTE un objeto JSON válido con esta estructura:
     "category": "connectivity",
     "urgency": "medium",
     "department": "technical_support",
-    "summary": "Exactamente diez palabras en español"
-    "explanation": "Explicación breve de la clasificación"
+    "summary": "Exactamente diez palabras en español",
+    "explanation": "Explicación breve de la clasificación",
     "confidence": 0.0
 }}
 
