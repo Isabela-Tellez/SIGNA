@@ -1,8 +1,8 @@
 """
-Schemas Pydantic del dominio de SIGNA.
+Schemas Pydantic del dominio de ARXIA.
 
-Definen la estructura y validación de los datos utilizados
-por el motor de triaje.
+Definen la estructura y validación de los datos utilizados por el
+motor de decisión multimodelo de motorsport.
 """
 
 from datetime import datetime, timezone
@@ -11,91 +11,73 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .enums import (
-    Category, ClassificationField, Decision, DecisionReason, Department,
-    ModelStatus, Provider, ReviewStatus, RiskLevel, Urgency,
+    AgreementLevel,
+    AnalysisCategory,
+    AnalysisStatus,
+    AnalysisUrgency,
+    ComparisonField,
+    ComparisonStatus,
+    DecisionReason,
+    DecisionType,
+    EventType,
+    Provider,
+    RecommendationAction,
+    ReviewStatus,
+    RiskFactorType,
+    RiskLevel,
+    RaceSession,
+    TyreCompound,
+    WeatherCondition,
 )
 
-# ---------------------------------------------------------------------------
-# Incident
-# ---------------------------------------------------------------------------
 
-class Incident(BaseModel):
-    """Representa la comunicación original del cliente."""
-    id: UUID = Field(default_factory=uuid4)
-
-    text: str = Field(min_length=1)
-
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
-
-    @field_validator("text")
-    @classmethod
-    def normalize_text(cls, value: str) -> str:
-        """Normaliza espacios sin modificar el contenido."""
-
-        value = " ".join(value.split())
-
-        if not value:
-            raise ValueError("Incident text cannot be empty")
-
-        return value
+# ============================================================================
+# WEATHER
+# ============================================================================
 
 
-# ---------------------------------------------------------------------------
-# Classification
-# ---------------------------------------------------------------------------
+class WeatherData(BaseModel):
+    """Información meteorológica asociada a un RaceEvent."""
 
+    condition: WeatherCondition = WeatherCondition.UNKNOWN
 
-class Classification(BaseModel):
-    """Clasificación producida por un modelo."""
-    category: Category
+    temperature_c: float | None = None
 
-    urgency: Urgency
+    track_temperature_c: float | None = None
 
-    department: Department
-
-    summary: str = Field(min_length=1)
-
-    explanation: str = Field(min_length=1)
-
-    confidence: float = Field(
+    rain_probability: float | None = Field(
+        default=None,
         ge=0.0,
         le=1.0,
     )
 
-    @field_validator("summary")
-    @classmethod
-    def validate_summary(cls, value: str) -> str:
-        """El resumen debe contener exactamente 10 palabras."""
-        value = " ".join(value.split())
+    wind_speed_kmh: float | None = Field(
+        default=None,
+        ge=0.0,
+    )
 
-        if len(value.split()) != 10:
+    @field_validator("temperature_c", "track_temperature_c")
+    @classmethod
+    def validate_temperature(
+        cls,
+        value: float | None,
+    ) -> float | None:
+        if value is not None and not -100 <= value <= 100:
             raise ValueError(
-                "Summary must contain exactly 10 words"
+                "Temperature is unrealistically low or high"
             )
 
         return value
 
-    @field_validator("explanation")
-    @classmethod
-    def validate_explanation(cls, value: str) -> str:
-        """La explicación no puede estar vacía."""
-        value = value.strip()
 
-        if not value:
-            raise ValueError("Explanation cannot be empty")
-
-        return value
-
-
-# ---------------------------------------------------------------------------
-# Model Metrics
-# ---------------------------------------------------------------------------
+# ============================================================================
+# MODEL METRICS
+# ============================================================================
 
 
 class ModelMetrics(BaseModel):
-    """Métricas asociadas a la ejecución de un modelo."""
+    """Métricas asociadas a una ejecución de modelo."""
+
     input_tokens: int = Field(ge=0)
 
     output_tokens: int = Field(ge=0)
@@ -110,9 +92,9 @@ class ModelMetrics(BaseModel):
 
     @model_validator(mode="after")
     def validate_total_tokens(self):
-        """Valida que el total coincida con entrada más salida."""
+        expected_total = self.input_tokens + self.output_tokens
 
-        if self.total_tokens != self.input_tokens + self.output_tokens:
+        if self.total_tokens != expected_total:
             raise ValueError(
                 "Total tokens must equal input tokens plus output tokens"
             )
@@ -120,194 +102,468 @@ class ModelMetrics(BaseModel):
         return self
 
 
-# ---------------------------------------------------------------------------
-# Model Result
-# ---------------------------------------------------------------------------
+# ============================================================================
+# RECOMMENDATION
+# ============================================================================
 
 
-class ModelResult(BaseModel):
-    """Resultado completo de una ejecución de modelo."""
-    provider: Provider
+class Recommendation(BaseModel):
+    """Recomendación estratégica producida por un modelo."""
 
-    model: str = Field(min_length=1)
+    action: RecommendationAction
 
-    classification: Classification | None = None
-
-    metrics: ModelMetrics
-
-    status: ModelStatus
-
-    error: str | None = None
-
-    @model_validator(mode="after")
-    def validate_result(self):
-        """Valida la coherencia entre estado y resultado."""
-        if self.status == ModelStatus.SUCCESS:
-
-            if self.classification is None:
-                raise ValueError(
-                    "Successful model result requires classification"
-                )
-
-            if self.error is not None:
-                raise ValueError(
-                    "Successful model result cannot contain an error"
-                )
-
-        else:
-
-            if self.error is None or not self.error.strip():
-                raise ValueError(
-                    "Failed model result requires an error"
-                )
-
-        return self
-
-
-# ---------------------------------------------------------------------------
-# Disagreement
-# ---------------------------------------------------------------------------
-
-
-class Disagreement(BaseModel):
-    """Representa una discrepancia entre Local y Cloud."""
-    field: ClassificationField
-
-    local_value: str
-
-    cloud_value: str
-
-
-# ---------------------------------------------------------------------------
-# Comparison
-# ---------------------------------------------------------------------------
-
-
-class Comparison(BaseModel):
-    """Comparación entre las clasificaciones de Local y Cloud."""
-    comparable: bool
-
-    category_agrees: bool | None = None
-
-    urgency_agrees: bool | None = None
-
-    department_agrees: bool | None = None
-
-    models_agree: bool | None = None
-
-    disagreements: list[Disagreement] = Field(
-        default_factory=list
+    target_lap: int | None = Field(
+        default=None,
+        ge=1,
     )
 
-    @model_validator(mode="after")
-    def validate_comparison(self):
-        """Mantiene la coherencia interna de la comparación."""
+    tyre_compound: TyreCompound | None = None
 
-        # Si no es comparable, no puede existir información
-        # sobre agreement ni discrepancias.
-        if not self.comparable:
-
-            if any(
-                value is not None
-                for value in (
-                    self.category_agrees,
-                    self.urgency_agrees,
-                    self.department_agrees,
-                    self.models_agree,
-                )
-            ):
-                raise ValueError(
-                    "Non-comparable results cannot have agreement values"
-                )
-
-            if self.disagreements:
-                raise ValueError(
-                    "Non-comparable results cannot have disagreements"
-                )
-
-            return self
-
-        # Una comparación comparable necesita conocer
-        # el agreement de los tres campos.
-        if any(
-            value is None
-            for value in (
-                self.category_agrees,
-                self.urgency_agrees,
-                self.department_agrees,
-            )
-        ):
-            raise ValueError(
-                "Comparable results require agreement values"
-            )
-
-        # Una comparación comparable también debe indicar
-        # si los modelos coinciden globalmente.
-        if self.models_agree is None:
-            raise ValueError(
-                "Comparable results require models_agree"
-            )
-
-        # models_agree debe ser coherente con los tres campos.
-        expected_models_agree = (
-            self.category_agrees
-            and self.urgency_agrees
-            and self.department_agrees
-        )
-
-        if self.models_agree != expected_models_agree:
-            raise ValueError(
-                "models_agree must match field agreement values"
-            )
-
-        return self
-
-
-# ---------------------------------------------------------------------------
-# SIGNA Decision
-# ---------------------------------------------------------------------------
-
-
-class SignaDecision(BaseModel):
-    """Decisión final tomada por SIGNA Core."""
-    decision: Decision
-
-    risk: RiskLevel
-
-    reason: DecisionReason
-
-    confidence_threshold: float = Field(
+    confidence: float = Field(
         ge=0.0,
         le=1.0,
     )
 
+    rationale: str = Field(
+        min_length=1,
+    )
 
-# ---------------------------------------------------------------------------
-# Human Review
-# ---------------------------------------------------------------------------
+    alternative_action: RecommendationAction | None = None
+
+    @field_validator("rationale")
+    @classmethod
+    def normalize_rationale(cls, value: str) -> str:
+        value = " ".join(value.split())
+
+        if not value:
+            raise ValueError(
+                "Recommendation rationale cannot be empty"
+            )
+
+        return value
+
+
+# ============================================================================
+# RACE EVENT
+# ============================================================================
+
+
+class RaceEvent(BaseModel):
+    """Contexto completo del evento de carrera analizado por ARXIA."""
+
+    id: UUID = Field(
+        default_factory=uuid4,
+    )
+
+    circuit: str = Field(
+        min_length=1,
+    )
+
+    session: RaceSession
+
+    lap: int = Field(
+        ge=1,
+    )
+
+    driver: str = Field(
+        min_length=1,
+    )
+
+    team: str = Field(
+        min_length=1,
+    )
+
+    position: int = Field(
+        ge=1,
+    )
+
+    weather: WeatherData | None = None
+
+    event_type: EventType
+
+    tyre_compound: TyreCompound | None = None
+
+    track_condition: WeatherCondition | None = None
+
+    race_context: str | None = None
+
+    description: str = Field(
+        min_length=1,
+    )
+
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
+
+    @field_validator(
+        "circuit",
+        "driver",
+        "team",
+        "description",
+    )
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        value = " ".join(value.split())
+
+        if not value:
+            raise ValueError(
+                "Text field cannot be empty"
+            )
+
+        return value
+
+    @field_validator("race_context")
+    @classmethod
+    def normalize_race_context(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        value = " ".join(value.split())
+
+        return value or None
+
+
+# ============================================================================
+# AI ANALYSIS
+# ============================================================================
+
+class AIAnalysis(BaseModel):
+    """Análisis estructurado producido por un proveedor de IA."""
+
+    provider: Provider
+    model: str = Field(min_length=1)
+    status: AnalysisStatus
+    category: AnalysisCategory
+    urgency: AnalysisUrgency
+    confidence: float = Field(ge=0.0, le=1.0)
+    summary: str = Field(min_length=1)
+    reasoning: str = Field(min_length=1)
+    recommendation: Recommendation
+    metrics: ModelMetrics
+    error: str | None = None
+
+    @field_validator("model")
+    @classmethod
+    def normalize_model(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Model cannot be empty")
+        return value
+
+    @field_validator("summary", "reasoning")
+    @classmethod
+    def normalize_analysis_text(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Analysis text cannot be empty")
+        return value
+
+    @field_validator("error")
+    @classmethod
+    def validate_error(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        value = " ".join(value.split())
+
+        if not value:
+            raise ValueError("Error cannot be empty")
+
+        return value
+
+    @model_validator(mode="after")
+    def validate_analysis(self):
+        if self.status == AnalysisStatus.SUCCESS and self.error is not None:
+            raise ValueError(
+                "Successful analysis cannot contain an error"
+            )
+
+        if self.status != AnalysisStatus.SUCCESS:
+            if self.error is None:
+                raise ValueError(
+                    "Failed analysis requires an error"
+                )
+
+        return self
+
+
+# ============================================================================
+# FIELD COMPARISON
+# ============================================================================
+class FieldComparison(BaseModel):
+    """Comparación de un campo entre Gemini y GPT."""
+
+    field: ComparisonField
+
+    gemini_value: str | float | int | None
+
+    gpt_value: str | float | int | None
+
+    agreement: AgreementLevel
+
+
+# ============================================================================
+# COMPARISON
+# ============================================================================
+
+
+class Comparison(BaseModel):
+    """Comparación estructurada entre Gemini y GPT."""
+
+    status: ComparisonStatus
+
+    fields: list[FieldComparison] = Field(
+        default_factory=list,
+    )
+
+    strategic_agreement: AgreementLevel | None = None
+
+    confidence_difference: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+
+    target_lap_difference: int | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    @model_validator(mode="after")
+    def validate_comparison(self):
+        if self.status == ComparisonStatus.COMPLETED:
+
+            if not self.fields:
+                raise ValueError(
+                    "Completed comparison requires field comparisons"
+                )
+
+            if self.strategic_agreement is None:
+                raise ValueError(
+                    "Completed comparison requires strategic agreement"
+                )
+
+        if (
+            self.status == ComparisonStatus.INSUFFICIENT_DATA
+            and self.strategic_agreement is not None
+        ):
+            raise ValueError(
+                "Insufficient comparison cannot have strategic agreement"
+            )
+
+        return self
+
+
+# ============================================================================
+# RISK FACTOR
+# ============================================================================
+
+
+class RiskFactor(BaseModel):
+    """Factor individual que contribuye al Risk Score de ARXIA."""
+
+    type: RiskFactorType
+
+    score: int = Field(
+        ge=0,
+        le=100,
+    )
+
+    severity: RiskLevel
+
+    description: str = Field(
+        min_length=1,
+    )
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, value: str) -> str:
+        value = " ".join(value.split())
+
+        if not value:
+            raise ValueError(
+                "Risk factor description cannot be empty"
+            )
+
+        return value
+
+
+# ============================================================================
+# RISK ASSESSMENT
+# ============================================================================
+
+
+class RiskAssessment(BaseModel):
+    """Evaluación determinista del riesgo de automatización."""
+
+    risk_score: int = Field(
+        ge=0,
+        le=100,
+    )
+
+    risk_level: RiskLevel
+
+    risk_factors: list[RiskFactor] = Field(
+        default_factory=list,
+    )
+
+    explanation: str = Field(
+        min_length=1,
+    )
+
+    @field_validator("explanation")
+    @classmethod
+    def normalize_explanation(cls, value: str) -> str:
+        value = " ".join(value.split())
+
+        if not value:
+            raise ValueError(
+                "Risk explanation cannot be empty"
+            )
+
+        return value
+
+    @model_validator(mode="after")
+    def validate_risk_level(self):
+        if self.risk_score <= 24:
+            expected_level = RiskLevel.LOW
+
+        elif self.risk_score <= 49:
+            expected_level = RiskLevel.MEDIUM
+
+        elif self.risk_score <= 74:
+            expected_level = RiskLevel.HIGH
+
+        else:
+            expected_level = RiskLevel.CRITICAL
+
+        if self.risk_level != expected_level:
+            raise ValueError(
+                "Risk level does not match risk score"
+            )
+
+        return self
+
+
+# ============================================================================
+# ARXIA DECISION
+# ============================================================================
+
+
+class ArxiaDecision(BaseModel):
+    """Decisión final tomada por ARXIA."""
+
+    action: RecommendationAction
+
+    target_lap: int | None = Field(
+        default=None,
+        ge=1,
+    )
+
+    tyre_compound: TyreCompound | None = None
+
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+
+    decision: DecisionType
+
+    risk_level: RiskLevel
+
+    reason: DecisionReason
+
+    supporting_models: list[Provider] = Field(
+        default_factory=list,
+    )
+
+    rationale: str = Field(
+        min_length=1,
+    )
+
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+    )
+
+    @field_validator("rationale")
+    @classmethod
+    def normalize_rationale(cls, value: str) -> str:
+        value = " ".join(value.split())
+
+        if not value:
+            raise ValueError(
+                "Decision rationale cannot be empty"
+            )
+
+        return value
+
+    @model_validator(mode="after")
+    def validate_decision(self):
+        if (
+            self.decision == DecisionType.AUTOMATIC
+            and self.risk_level in (
+                RiskLevel.HIGH,
+                RiskLevel.CRITICAL,
+            )
+        ):
+            raise ValueError(
+                "High or critical risk cannot result in automatic decision"
+            )
+
+        if (
+            self.decision == DecisionType.HUMAN_REVIEW
+            and self.risk_level == RiskLevel.LOW
+        ):
+            raise ValueError(
+                "Low risk should not require human review"
+            )
+
+        return self
+
+
+# ============================================================================
+# HUMAN REVIEW
+# ============================================================================
 
 
 class HumanReview(BaseModel):
-    """Representa la intervención de un operador humano."""
-    id: UUID = Field(default_factory=uuid4)
+    """Intervención de un ingeniero cuando ARXIA requiere revisión."""
+
+    id: UUID = Field(
+        default_factory=uuid4,
+    )
 
     status: ReviewStatus
 
-    final_classification: Classification | None = None
+    final_decision: Recommendation | None = None
 
     reviewer_comment: str | None = None
 
     reviewed_at: datetime | None = None
 
+    @field_validator("reviewer_comment")
+    @classmethod
+    def normalize_comment(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        value = " ".join(value.split())
+
+        return value or None
+
     @model_validator(mode="after")
     def validate_review(self):
-        """Valida la coherencia del estado de la revisión."""
-
         if self.status == ReviewStatus.PENDING:
 
-            if self.final_classification is not None:
+            if self.final_decision is not None:
                 raise ValueError(
-                    "Pending review cannot have final classification"
+                    "Pending review cannot have final decision"
                 )
 
             if self.reviewed_at is not None:
@@ -317,9 +573,9 @@ class HumanReview(BaseModel):
 
         else:
 
-            if self.final_classification is None:
+            if self.final_decision is None:
                 raise ValueError(
-                    "Completed review requires final classification"
+                    "Completed review requires final decision"
                 )
 
             if self.reviewed_at is None:
@@ -330,47 +586,62 @@ class HumanReview(BaseModel):
         return self
 
 
-# ---------------------------------------------------------------------------
-# Triage Result
-# ---------------------------------------------------------------------------
+# ============================================================================
+# ARXIA RESULT
+# ============================================================================
 
 
-class TriageResult(BaseModel):
-    """Resultado completo de una ejecución de SIGNA."""
-    id: UUID = Field(default_factory=uuid4)
+class ArxiaResult(BaseModel):
+    """Resultado completo de una ejecución de ARXIA."""
 
-    incident: Incident
+    id: UUID = Field(
+        default_factory=uuid4,
+    )
 
-    local_result: ModelResult
+    race_event: RaceEvent
 
-    cloud_result: ModelResult
+    gemini_analysis: AIAnalysis
+
+    gpt_analysis: AIAnalysis
 
     comparison: Comparison
 
-    decision: SignaDecision
+    risk_assessment: RiskAssessment
+
+    decision: ArxiaDecision
 
     human_review: HumanReview | None = None
 
     processed_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(timezone.utc),
     )
 
     @model_validator(mode="after")
-    def validate_human_review(self):
-        """Valida la coherencia entre decisión y revisión humana."""
+    def validate_result(self):
+        if self.gemini_analysis.provider != Provider.GEMINI:
+            raise ValueError(
+                "gemini_analysis must use GEMINI provider"
+            )
 
-        if self.decision.decision == Decision.AUTOMATIC:
+        if self.gpt_analysis.provider != Provider.GPT:
+            raise ValueError(
+                "gpt_analysis must use GPT provider"
+            )
 
-            if self.human_review is not None:
-                raise ValueError(
-                    "Automatic decision cannot have human review"
-                )
+        if (
+            self.decision.decision == DecisionType.AUTOMATIC
+            and self.human_review is not None
+        ):
+            raise ValueError(
+                "Automatic decision cannot have human review"
+            )
 
-        elif self.decision.decision == Decision.HUMAN_REVIEW:
-
-            if self.human_review is None:
-                raise ValueError(
-                    "Human review decision requires human review"
-                )
+        if (
+            self.decision.decision == DecisionType.HUMAN_REVIEW
+            and self.human_review is None
+        ):
+            raise ValueError(
+                "Human review decision requires human review"
+            )
 
         return self
